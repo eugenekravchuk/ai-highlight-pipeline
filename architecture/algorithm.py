@@ -10,14 +10,11 @@ import torch
 ### our files ###
 from phs import get_pseudo_highlight_scores
 from self_att import SelfAttention
-
+from classifier import AudioClassifier
 
 CLIP_DURATION = 2
 
-
 def split_audio_into_segments(audio, sr, segment_duration=15, pad=True):
-
-
     audio_1d = np.squeeze(audio)
     if audio_1d.ndim != 1:
         raise ValueError("audio повинен бути 1D або (1, N)")
@@ -60,9 +57,9 @@ def preprocess_audio_paths(audio_path_list):
     
     return audio_list
 
-def get_embeddings_list(segments_list, device):
+def get_embeddings_list(segments_list, model_path, device='cuda'):
 
-    at = AudioTagging(checkpoint_path="/home/mpiuser/panns_data/Cnn14_mAP=0.431.pth", device=device)
+    at = AudioTagging(checkpoint_path=model_path, device=device)
 
     embeddings_list = []
 
@@ -84,26 +81,72 @@ def list_files_oswalk(root: str, followlinks: bool = False, ext_filter: set | No
             result.append(full)
     return result
 
+
+def classify_embeddings(embeddings_list, device='cuda', d=128, hidden=256, dropout=0.5):
+    # ---- stack with padding ----
+    clip_tensors = [torch.as_tensor(e, dtype=torch.float32) for e in embeddings_list]
+    B = len(clip_tensors)
+    D = clip_tensors[0].shape[-1]
+    T_lens = [e.shape[0] for e in clip_tensors]
+    T_max = max(T_lens)
+
+    x = torch.zeros((B, T_max, D), dtype=torch.float32)
+    mask = torch.zeros((B, T_max), dtype=torch.bool)
+    for i, e in enumerate(clip_tensors):
+        t = e.shape[0]
+        x[i, :t] = e
+        mask[i, :t] = True
+
+    x = x.to(device)
+    mask = mask.to(device)
+
+    # ---- Self-attention over time ----
+    att = SelfAttention(D, d).to(device)
+    att.eval()
+    with torch.no_grad():
+        att_out = att(x, mask=mask)          # (B, T_max, D)
+
+    # ---- Time-distributed classifier ----
+    clf = AudioClassifier(D=D, hidden=hidden, p=dropout).to(device)
+    clf.eval()
+    with torch.no_grad():
+        flat = att_out.reshape(B * T_max, D) # (B*T_max, D)
+        flat_logits = clf(flat)              # (B*T_max,)
+        flat_probs = torch.sigmoid(flat_logits)
+        probs = flat_probs.reshape(B, T_max)   # (B, T_max)
+        logits = flat_logits.reshape(B, T_max) # (B, T_max)
+
+    # ---- Unpad back to lists ----
+    probs_per_clip = []
+    logits_per_clip = []
+    for i, t in enumerate(T_lens):
+        probs_per_clip.append(probs[i, :t].detach().cpu().numpy())
+        logits_per_clip.append(logits[i, :t].detach().cpu().numpy())
+
+    return probs_per_clip, logits_per_clip
+
 if __name__ == '__main__':
 
     device = 'cuda'
-    dir_path = 'audios'
+    dir_path = './architecture/audios'
 
     audio_paths = list_files_oswalk(dir_path)
 
     segments_list = preprocess_audio_paths(audio_paths)
 
-    embeddings_list = get_embeddings_list(segments_list, device)
+    model_path = './architecture/models/Cnn14_mAP=0.431.pth'
+    embeddings_list = get_embeddings_list(segments_list, model_path, device)
 
+    # no classifier part
     class_aph_dct = get_pseudo_highlight_scores(embeddings_list)
-
     d = 128
     D = len(embeddings_list[0][0])
-
     embeddings_list = torch.tensor(embeddings_list)
-
     model = SelfAttention(D, d)
-
     res = model.forward(embeddings_list)
+    print(class_aph_dct)
 
-
+    print("Predicting highlights…")
+    # with classifier part
+    probs, logits = classify_embeddings(embeddings_list, device='cpu')
+    print("Predicted highlight probabilities:", probs)

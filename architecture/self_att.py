@@ -20,7 +20,7 @@ class SelfAttention(nn.Module):
 
         self.c = nn.Parameter(torch.tensor(1.0 / math.sqrt(d), dtype=torch.float32))
 
-    def forward(self, x):
+    def forward(self, x, mask=None):
 
         single_sample = False
 
@@ -43,6 +43,10 @@ class SelfAttention(nn.Module):
         k = k - k.mean(dim=1, keepdim=True)
 
         logits = self.c * torch.matmul(q, k.transpose(-2, -1))
+
+        if mask is not None:
+            mask2d = mask.unsqueeze(1).expand_as(logits)
+            logits = logits.masked_fill(~mask2d, float("-inf"))
     
         alpha = torch.softmax(logits, dim=-1) + torch.softmax(m.squeeze(-1).unsqueeze(1), dim=-1)
 
