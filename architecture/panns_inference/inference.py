@@ -1,4 +1,5 @@
 import os
+import os, urllib.request, shutil, subprocess
 import numpy as np
 import argparse
 import librosa
@@ -32,9 +33,18 @@ class AudioTagging(object):
         print('Checkpoint path: {}'.format(checkpoint_path))
         
         if not os.path.exists(checkpoint_path) or os.path.getsize(checkpoint_path) < 3e8:
-            create_folder(os.path.dirname(checkpoint_path))
+            os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
             zenodo_path = 'https://zenodo.org/record/3987831/files/Cnn14_mAP%3D0.431.pth?download=1'
-            os.system('wget -O "{}" "{}"'.format(checkpoint_path, zenodo_path))
+
+            # try wget or curl if installed, else use urllib
+            if shutil.which("wget"):
+                subprocess.run(["wget", "-O", checkpoint_path, zenodo_path], check=True)
+            elif shutil.which("curl"):
+                subprocess.run(["curl", "-L", "-o", checkpoint_path, zenodo_path], check=True)
+            else:
+                print("Downloading pretrained model via urllib…")
+                urllib.request.urlretrieve(zenodo_path, checkpoint_path)
+
 
         if device == 'cuda' and torch.cuda.is_available():
             self.device = 'cuda'
@@ -91,8 +101,17 @@ class SoundEventDetection(object):
         print('Checkpoint path: {}'.format(checkpoint_path))
 
         if not os.path.exists(checkpoint_path) or os.path.getsize(checkpoint_path) < 3e8:
-            create_folder(os.path.dirname(checkpoint_path))
-            os.system('wget -O "{}" https://zenodo.org/record/3987831/files/Cnn14_DecisionLevelMax_mAP%3D0.385.pth?download=1'.format(checkpoint_path))
+            os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+            zenodo_path = "https://zenodo.org/record/3987831/files/Cnn14_DecisionLevelMax_mAP%3D0.385.pth?download=1"
+
+            # Try wget or curl if available; otherwise use urllib (works on Windows)
+            if shutil.which("wget"):
+                subprocess.run(["wget", "-O", checkpoint_path, zenodo_path], check=True)
+            elif shutil.which("curl"):
+                subprocess.run(["curl", "-L", "-o", checkpoint_path, zenodo_path], check=True)
+            else:
+                print("Downloading pretrained model via urllib…")
+                urllib.request.urlretrieve(zenodo_path, checkpoint_path)
 
         if device == 'cuda' and torch.cuda.is_available():
             self.device = 'cuda'

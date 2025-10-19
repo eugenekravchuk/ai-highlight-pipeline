@@ -2,15 +2,21 @@ import os
 import numpy as np
 import csv
 from pathlib import Path
+import urllib.request
+
+def ensure_download(url: str, dest_path: str):
+    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+    if not os.path.isfile(dest_path):
+        print(f"Downloading {url} -> {dest_path}")
+        urllib.request.urlretrieve(url, dest_path)  # cross-platform
+    return dest_path
 
 sample_rate = 32000
 
 labels_csv_path = '{}/panns_data/class_labels_indices.csv'.format(str(Path.home()))
+labels_url = "https://storage.googleapis.com/us_audioset/youtube_corpus/v1/csv/class_labels_indices.csv"
 
-# Download labels if not exist
-if not os.path.isfile(labels_csv_path):
-	os.makedirs(os.path.dirname(labels_csv_path), exist_ok=True)
-	os.system('wget -O "{}" "http://storage.googleapis.com/us_audioset/youtube_corpus/v1/csv/class_labels_indices.csv"'.format(labels_csv_path))
+ensure_download(labels_url, labels_csv_path)
 
 # Load label
 with open(labels_csv_path, 'r') as f:
