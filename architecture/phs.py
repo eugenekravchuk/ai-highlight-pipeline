@@ -3,19 +3,8 @@ import umap
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
 
-
-def audio_features_mean(features):
-    return sum(features)/features.shape[0]
-
-def get_feature_vec_mean(features_list):
-
-    feature_means = []
-
-    for feature in features_list:
-        feature_mean = audio_features_mean(feature)
-        feature_means.append(feature_mean)
-
-    return feature_means
+def get_feature_vec_mean(embeddings):
+    return sum(embeddings)/len(embeddings)
 
 def get_segments_means(embeddings_list):
 
@@ -137,6 +126,8 @@ def get_pseudo_highlight_scores(embeddings_list):
 
     labels = get_labels(reduced_features, best_k)
 
+    print(labels)
+
     index_embeddings_list = get_indexed_embeddings(embeddings_list)
 
     labels_clips_dct = get_class_clips(index_embeddings_list, labels)
@@ -144,5 +135,12 @@ def get_pseudo_highlight_scores(embeddings_list):
     clips_aph = get_clips_aph(labels_clips_dct)
 
     sorted_clips_aph = sort_clips_aph(clips_aph)
+
+    leng = len(sorted_clips_aph)
+    leng_09 = len([i for i in sorted_clips_aph if i > 0.95])
+
+    print(leng)
+    print(leng_09)
+    print(leng_09/leng)
 
     return sorted_clips_aph

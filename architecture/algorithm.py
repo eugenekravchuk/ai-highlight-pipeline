@@ -128,7 +128,7 @@ def classify_embeddings(embeddings_list, device='cuda', d=128, hidden=256, dropo
 if __name__ == '__main__':
 
     device = 'cuda'
-    dir_path = './architecture/audios'
+    dir_path = 'audios'
 
     audio_paths = list_files_oswalk(dir_path)
 
@@ -139,14 +139,14 @@ if __name__ == '__main__':
 
     # no classifier part
     class_aph_dct = get_pseudo_highlight_scores(embeddings_list)
-    d = 128
-    D = len(embeddings_list[0][0])
-    embeddings_list = torch.tensor(embeddings_list)
-    model = SelfAttention(D, d)
-    res = model.forward(embeddings_list)
-    print(class_aph_dct)
+    # d = 128
+    # D = len(embeddings_list[0][0])
+    # embeddings_list = torch.tensor(embeddings_list)
+    # model = SelfAttention(D, d)
+    # res = model.forward(embeddings_list)
+    # print(class_aph_dct)
 
-    print("Predicting highlights…")
-    # with classifier part
-    probs, logits = classify_embeddings(embeddings_list, device='cpu')
-    print("Predicted highlight probabilities:", probs)
+    # print("Predicting highlights…")
+    # # with classifier part
+    # probs, logits = classify_embeddings(embeddings_list, device='cpu')
+    # print("Predicted highlight probabilities:", probs)
