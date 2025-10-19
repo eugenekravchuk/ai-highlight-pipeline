@@ -62,7 +62,7 @@ def preprocess_audio_paths(audio_path_list):
 
 def get_embeddings_list(segments_list, device):
 
-    at = AudioTagging(checkpoint_path="/home/mpiuser/panns_data/Cnn14_mAP=0.431.pth", device=device)
+    at = AudioTagging(checkpoint_path="~/panns_data/Cnn14_mAP=0.431.pth", device=device)
 
     embeddings_list = []
 
@@ -96,14 +96,3 @@ if __name__ == '__main__':
     embeddings_list = get_embeddings_list(segments_list, device)
 
     class_aph_dct = get_pseudo_highlight_scores(embeddings_list)
-
-    d = 128
-    D = len(embeddings_list[0][0])
-
-    embeddings_list = torch.tensor(embeddings_list)
-
-    model = SelfAttention(D, d)
-
-    res = model.forward(embeddings_list)
-
-
