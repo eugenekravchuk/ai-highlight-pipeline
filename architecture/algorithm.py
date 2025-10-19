@@ -139,14 +139,18 @@ if __name__ == '__main__':
 
     # no classifier part
     class_aph_dct = get_pseudo_highlight_scores(embeddings_list)
-    # d = 128
-    # D = len(embeddings_list[0][0])
-    # embeddings_list = torch.tensor(embeddings_list)
-    # model = SelfAttention(D, d)
-    # res = model.forward(embeddings_list)
-    # print(class_aph_dct)
 
-    # print("Predicting highlights…")
-    # # with classifier part
-    # probs, logits = classify_embeddings(embeddings_list, device='cpu')
-    # print("Predicted highlight probabilities:", probs)
+    leng = len(class_aph_dct)
+    leng_i = len([i for i in class_aph_dct if i > 0.9])
+
+    d = 128
+    D = len(embeddings_list[0][0])
+    embeddings_list = torch.tensor(embeddings_list)
+    model = SelfAttention(D, d)
+    res = model.forward(embeddings_list)
+    print(class_aph_dct)
+
+    print("Predicting highlights…")
+    # with classifier part
+    probs, logits = classify_embeddings(embeddings_list, device='cpu')
+    print("Predicted highlight probabilities:", probs)

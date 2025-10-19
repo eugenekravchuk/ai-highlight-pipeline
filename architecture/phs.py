@@ -116,6 +116,7 @@ def sort_clips_aph(clips_aph):
 
     return [aph_tuple[1].item() for aph_tuple in sorted_aph_lst]
 
+
 def get_pseudo_highlight_scores(embeddings_list):
 
     clips_feature_means = get_segments_means(embeddings_list)
@@ -126,8 +127,6 @@ def get_pseudo_highlight_scores(embeddings_list):
 
     labels = get_labels(reduced_features, best_k)
 
-    print(labels)
-
     index_embeddings_list = get_indexed_embeddings(embeddings_list)
 
     labels_clips_dct = get_class_clips(index_embeddings_list, labels)
@@ -135,12 +134,5 @@ def get_pseudo_highlight_scores(embeddings_list):
     clips_aph = get_clips_aph(labels_clips_dct)
 
     sorted_clips_aph = sort_clips_aph(clips_aph)
-
-    leng = len(sorted_clips_aph)
-    leng_09 = len([i for i in sorted_clips_aph if i > 0.95])
-
-    print(leng)
-    print(leng_09)
-    print(leng_09/leng)
 
     return sorted_clips_aph
