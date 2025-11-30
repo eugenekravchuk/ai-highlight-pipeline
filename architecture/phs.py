@@ -3,19 +3,8 @@ import umap
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
 
-
-def audio_features_mean(features):
-    return sum(features)/features.shape[0]
-
-def get_feature_vec_mean(features_list):
-
-    feature_means = []
-
-    for feature in features_list:
-        feature_mean = audio_features_mean(feature)
-        feature_means.append(feature_mean)
-
-    return feature_means
+def get_feature_vec_mean(embeddings):
+    return sum(embeddings)/len(embeddings)
 
 def get_segments_means(embeddings_list):
 
@@ -87,14 +76,46 @@ def aph(clips):
 
     return cos_sim.mean(axis=1)
 
-def get_class_aph(labels_clips_dct):
+def get_clips_aph(labels_clips_dct):
 
-    class_aph_dct = {}
+    class_aph = []
 
-    for class_i, clips_i in labels_clips_dct.items():
-        class_aph_dct[class_i] = aph(clips_i)
+    for _, clips_i in labels_clips_dct.items():
 
-    return class_aph_dct
+        unlabeled_clips_i = np.array([clip_emb for clips_j in clips_i  for clip in clips_j for _, clip_emb in clip.items()])
+
+        indexes = np.array([index for clips_j in clips_i  for clip in clips_j for index, _ in clip.items()])
+
+        aph_clips_i = aph(unlabeled_clips_i)
+
+        class_aph += [[index, aph_clip_score] for index, aph_clip_score in zip(indexes, aph_clips_i)]
+
+    return class_aph
+
+def get_indexed_embeddings(embeddings_list):
+
+    counter = 0
+
+    indexed_embeddings_list = []
+
+    for video in embeddings_list:
+
+        indexed_clips = []
+
+        for clip in video:
+            indexed_clips.append({counter : clip})
+
+            counter += 1
+        
+        indexed_embeddings_list.append(indexed_clips)
+    
+    return indexed_embeddings_list
+
+def sort_clips_aph(clips_aph):
+    sorted_aph_lst = sorted(clips_aph, key = lambda x: x[0])
+
+    return [aph_tuple[1].item() for aph_tuple in sorted_aph_lst]
+
 
 def get_pseudo_highlight_scores(embeddings_list):
 
@@ -106,8 +127,12 @@ def get_pseudo_highlight_scores(embeddings_list):
 
     labels = get_labels(reduced_features, best_k)
 
-    labels_clips_dct = get_class_clips(embeddings_list, labels)
+    index_embeddings_list = get_indexed_embeddings(embeddings_list)
 
-    class_aph_dct = get_class_aph(labels_clips_dct)
+    labels_clips_dct = get_class_clips(index_embeddings_list, labels)
 
-    return class_aph_dct
+    clips_aph = get_clips_aph(labels_clips_dct)
+
+    sorted_clips_aph = sort_clips_aph(clips_aph)
+
+    return sorted_clips_aph

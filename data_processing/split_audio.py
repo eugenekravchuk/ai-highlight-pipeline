@@ -24,7 +24,7 @@ def split_mp3(file_path: str, n_parts: int, output_dir: str | None = None):
 if __name__ == "__main__":
 
     mp3_path = "output.mp3"
-    segment_number = 40
+    segment_number = 100
     save_folder_path = "audios"
 
-    split_mp3(mp3_path, 40, save_folder_path)
+    split_mp3(mp3_path, segment_number, save_folder_path)
