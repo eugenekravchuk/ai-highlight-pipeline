@@ -1,6 +1,8 @@
 downloads/
 output/
 *models/
+/checkpoints
+*.png
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
