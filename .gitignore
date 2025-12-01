@@ -3,6 +3,9 @@ output/
 *models/
 /checkpoints
 *.png
+data
+videos_pipeline
+*.mp4
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

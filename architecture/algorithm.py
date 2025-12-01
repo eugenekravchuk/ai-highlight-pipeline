@@ -1,18 +1,16 @@
 import os
-import matplotlib.pyplot as plt
 import numpy as np
 import librosa
-import panns_inference
-from panns_inference import AudioTagging, SoundEventDetection, labels
-from sklearn.cluster import KMeans
 import torch
+from panns_inference import AudioTagging
 
 ### our files ###
 from phs import get_pseudo_highlight_scores
-from self_att import SelfAttention
-from classifier import AudioClassifier
+from visual_features import get_visual_embeddings_list
+from av_model import AVHighlightDetector
 
 CLIP_DURATION = 2
+VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".avi"}
 
 def split_audio_into_segments(audio, sr, segment_duration=15, pad=True):
     audio_1d = np.squeeze(audio)
@@ -82,75 +80,112 @@ def list_files_oswalk(root: str, followlinks: bool = False, ext_filter: set | No
     return result
 
 
-def classify_embeddings(embeddings_list, device='cuda', d=128, hidden=256, dropout=0.5):
-    # ---- stack with padding ----
-    clip_tensors = [torch.as_tensor(e, dtype=torch.float32) for e in embeddings_list]
+def predict_highlights(
+    audio_embeddings_list,
+    visual_embeddings_list,
+    *,
+    device: str = 'cuda',
+    checkpoint_path: str | None = None,
+):
+    if visual_embeddings_list is None:
+        raise ValueError("Visual embeddings are required for the AV model")
+
+    if len(audio_embeddings_list) != len(visual_embeddings_list):
+        raise ValueError("Mismatch between audio and visual samples")
+
+    clip_tensors = [torch.as_tensor(e, dtype=torch.float32) for e in audio_embeddings_list]
+    visual_tensors = [torch.as_tensor(v, dtype=torch.float32) for v in visual_embeddings_list]
+
     B = len(clip_tensors)
-    D = clip_tensors[0].shape[-1]
-    T_lens = [e.shape[0] for e in clip_tensors]
-    T_max = max(T_lens)
+    audio_dim = clip_tensors[0].shape[-1]
+    visual_dim = visual_tensors[0].shape[-1]
+    lengths = [t.shape[0] for t in clip_tensors]
+    T_max = max(lengths)
 
-    x = torch.zeros((B, T_max, D), dtype=torch.float32)
+    audio_pad = torch.zeros((B, T_max, audio_dim), dtype=torch.float32)
+    visual_pad = torch.zeros((B, T_max, visual_dim), dtype=torch.float32)
     mask = torch.zeros((B, T_max), dtype=torch.bool)
-    for i, e in enumerate(clip_tensors):
-        t = e.shape[0]
-        x[i, :t] = e
-        mask[i, :t] = True
 
-    x = x.to(device)
+    for i, (a, v) in enumerate(zip(clip_tensors, visual_tensors)):
+        T = a.shape[0]
+        audio_pad[i, :T] = a
+        visual_pad[i, :T] = v
+        mask[i, :T] = True
+
+    audio_pad = audio_pad.to(device)
+    visual_pad = visual_pad.to(device)
     mask = mask.to(device)
 
-    # ---- Self-attention over time ----
-    att = SelfAttention(D, d).to(device)
-    att.eval()
+    model = AVHighlightDetector(audio_dim=audio_dim, visual_dim=visual_dim).to(device)
+    if checkpoint_path and os.path.isfile(checkpoint_path):
+        state = torch.load(checkpoint_path, map_location=device)
+        model.load_state_dict(state.get('model_state', state))
+
+    model.eval()
     with torch.no_grad():
-        att_out = att(x, mask=mask)          # (B, T_max, D)
+        logits = model(audio_pad, visual_pad, mask)
+        probs = torch.sigmoid(logits)
 
-    # ---- Time-distributed classifier ----
-    clf = AudioClassifier(D=D, hidden=hidden, p=dropout).to(device)
-    clf.eval()
-    with torch.no_grad():
-        flat = att_out.reshape(B * T_max, D) # (B*T_max, D)
-        flat_logits = clf(flat)              # (B*T_max,)
-        flat_probs = torch.sigmoid(flat_logits)
-        probs = flat_probs.reshape(B, T_max)   # (B, T_max)
-        logits = flat_logits.reshape(B, T_max) # (B, T_max)
-
-    # ---- Unpad back to lists ----
-    probs_per_clip = []
-    logits_per_clip = []
-    for i, t in enumerate(T_lens):
-        probs_per_clip.append(probs[i, :t].detach().cpu().numpy())
-        logits_per_clip.append(logits[i, :t].detach().cpu().numpy())
-
-    return probs_per_clip, logits_per_clip
+    probs_per_clip = [probs[i, :lengths[i]].detach().cpu().numpy() for i in range(B)]
+    return probs_per_clip
 
 if __name__ == '__main__':
 
     device = 'cuda'
-    dir_path = 'audios'
+    audio_dir = 'audios'
+    video_dir = os.getenv('VIDEO_DIR', './videos_pipeline/downloads')
 
-    audio_paths = list_files_oswalk(dir_path)
+    audio_paths = sorted(list_files_oswalk(audio_dir))
+    if not audio_paths:
+        raise RuntimeError(f"No audio files found in {audio_dir}")
 
     segments_list = preprocess_audio_paths(audio_paths)
 
     model_path = './architecture/models/Cnn14_mAP=0.431.pth'
     embeddings_list = get_embeddings_list(segments_list, model_path, device)
 
-    # no classifier part
-    class_aph_dct = get_pseudo_highlight_scores(embeddings_list)
+    # Visual pathway -------------------------------------------------
+    video_paths = []
+    if os.path.isdir(video_dir):
+        video_paths = [p for p in list_files_oswalk(video_dir, ext_filter=VIDEO_EXTENSIONS)]
+        video_paths.sort()
 
-    leng = len(class_aph_dct)
-    leng_i = len([i for i in class_aph_dct if i > 0.9])
+    if video_paths:
+        if len(video_paths) != len(embeddings_list):
+            min_len = min(len(video_paths), len(embeddings_list))
+            print(f"Warning: {len(video_paths)} videos for {len(embeddings_list)} audio items. Truncating to {min_len} pairs.")
+            video_paths = video_paths[:min_len]
+            embeddings_list = embeddings_list[:min_len]
+            segments_list = segments_list[:min_len]
+            audio_paths = audio_paths[:min_len]
 
-    d = 128
-    D = len(embeddings_list[0][0])
-    embeddings_list = torch.tensor(embeddings_list)
-    model = SelfAttention(D, d)
-    res = model.forward(embeddings_list)
-    print(class_aph_dct)
+        clip_counts = [emb.shape[0] for emb in embeddings_list]
+        visual_embeddings_list = get_visual_embeddings_list(
+            video_paths,
+            clip_counts,
+            clip_duration=CLIP_DURATION,
+            target_fps=16.0,
+            device=device,
+            backbone=os.getenv('VISUAL_BACKBONE', 'resnet34'),
+            cache_dir='./output/visual_embeddings',
+        )
+    else:
+        raise RuntimeError(f"No videos found in {video_dir}; cannot run audio-visual model")
 
-    print("Predicting highlights…")
-    # with classifier part
-    probs, logits = classify_embeddings(embeddings_list, device='cpu')
-    print("Predicted highlight probabilities:", probs)
+    # Pseudo-highlights ---------------------------------------------
+    phs_result = get_pseudo_highlight_scores(embeddings_list, visual_embeddings_list)
+    av_scores = phs_result.av_scores
+    print(f"Pseudo-categories discovered: K={phs_result.model.best_k}")
+    if av_scores:
+        sample_vid = next(iter(av_scores))
+        print(f"Sample AV recurrence scores for clip {sample_vid}: {av_scores[sample_vid][:5]}")
+
+    print("Predicting highlights with AV head…")
+    probs = predict_highlights(
+        embeddings_list,
+        visual_embeddings_list,
+        device=device,
+        checkpoint_path=os.getenv('AV_CHECKPOINT', './checkpoints/best_model.pth'),
+    )
+    for idx, clip_probs in enumerate(probs[:3]):
+        print(f"Clip {idx}: {clip_probs[:8]}")
