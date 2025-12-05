@@ -60,9 +60,9 @@ def get_class_clips(embeddings_list, labels):
             clips_i = clips_i.reshape(1, -1)
 
         if label_i in labels_dct:
-            labels_dct[label_i] = np.vstack((labels_dct[label_i], clips_i))
+            labels_dct[label_i] += [clips_i]
         else:
-            labels_dct[label_i] = clips_i
+            labels_dct[label_i] = [clips_i]
 
     return labels_dct
 
@@ -82,9 +82,9 @@ def get_clips_aph(labels_clips_dct):
 
     for _, clips_i in labels_clips_dct.items():
 
-        unlabeled_clips_i = np.array([clip_emb for clips_j in clips_i  for clip in clips_j for _, clip_emb in clip.items()])
+        unlabeled_clips_i = np.array([clip_emb for clips_j in clips_i  for clip_k in clips_j for clip in clip_k for _, clip_emb in clip.items()])
 
-        indexes = np.array([index for clips_j in clips_i  for clip in clips_j for index, _ in clip.items()])
+        indexes = np.array([index for clips_j in clips_i  for clip_k in clips_j for clip in clip_k for index, _ in clip.items()])
 
         aph_clips_i = aph(unlabeled_clips_i)
 
@@ -116,10 +116,25 @@ def sort_clips_aph(clips_aph):
 
     return [aph_tuple[1].item() for aph_tuple in sorted_aph_lst]
 
+def conratenate_embeddings(audio_embeddings, video_embeddings):
+    return np.concatenate((audio_embeddings, video_embeddings), axis=1)
 
-def get_pseudo_highlight_scores(embeddings_list):
+def fuse_audio_video_aph(audio_aph, video_aph):
+    fused_aph = []
 
-    clips_feature_means = get_segments_means(embeddings_list)
+    for (index_a, aph_a), (index_v, aph_v) in zip(audio_aph, video_aph):
+        assert index_a == index_v, "Indexes do not match!"
+        combined_aph = (aph_a + aph_v) / 2
+        fused_aph.append((index_a, combined_aph))
+    
+    return fused_aph
+
+def get_pseudo_highlight_scores(audio_embeddings_list, video_embeddings_list):
+
+    clips_audio_feature_means = get_segments_means(audio_embeddings_list)
+    clips_video_feature_means = get_segments_means(video_embeddings_list)
+    
+    clips_feature_means = conratenate_embeddings(clips_audio_feature_means, clips_video_feature_means)
 
     reduced_features = reduce_dimentionality(clips_feature_means)
 
@@ -127,11 +142,15 @@ def get_pseudo_highlight_scores(embeddings_list):
 
     labels = get_labels(reduced_features, best_k)
 
-    index_embeddings_list = get_indexed_embeddings(embeddings_list)
+    index_audio_embeddings_list = get_indexed_embeddings(audio_embeddings_list)
+    audio_labels_clips_dct = get_class_clips(index_audio_embeddings_list, labels)
+    clips_audio_aph = get_clips_aph(audio_labels_clips_dct)
 
-    labels_clips_dct = get_class_clips(index_embeddings_list, labels)
+    index_video_embeddings_list = get_indexed_embeddings(video_embeddings_list)
+    video_labels_clips_dct = get_class_clips(index_video_embeddings_list, labels)
+    clips_video_aph = get_clips_aph(video_labels_clips_dct)
 
-    clips_aph = get_clips_aph(labels_clips_dct)
+    clips_aph = fuse_audio_video_aph(clips_audio_aph, clips_video_aph)
 
     sorted_clips_aph = sort_clips_aph(clips_aph)
 
