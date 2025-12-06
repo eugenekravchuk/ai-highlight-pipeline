@@ -28,3 +28,4 @@ pandas>=2.2.3
 
 # --- Environment & compatibility ---
 typing-extensions>=4.12.2
+moviepy
