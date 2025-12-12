@@ -3,6 +3,7 @@ output/
 *models/
 /checkpoints
 *.png
+data
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -157,6 +158,7 @@ activemq-data/
 .env
 .envrc
 .venv
+.venv*
 env/
 venv/
 ENV/
