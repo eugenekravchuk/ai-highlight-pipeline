@@ -1,16 +1,91 @@
 import numpy as np
 import umap
+import torch
+import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
-import matplotlib.pyplot as plt
-import torch
 
 def _ensure_vector(embedding):
     arr = np.asarray(embedding, dtype=np.float32)
     if arr.ndim > 1:
         return arr.reshape(-1)
     return arr
+
+def _l2_normalize(A: np.ndarray, eps=1e-8) -> np.ndarray:
+    norms = np.linalg.norm(A, axis=1, keepdims=True)
+    return A / np.maximum(norms, eps)
+
+def _knn_mean_sim(query_norm: np.ndarray, bank_norm: np.ndarray, k: int) -> np.ndarray:
+    S = query_norm @ bank_norm.T
+    k_eff = min(k, S.shape[1])
+    topk = np.partition(S, -k_eff, axis=1)[:, -k_eff:]
+    return topk.mean(axis=1).astype(np.float32)
+
+def _within_cluster_knn(A_norm: np.ndarray, k: int) -> np.ndarray:
+    S = A_norm @ A_norm.T
+    np.fill_diagonal(S, -np.inf)
+    k_eff = min(k, S.shape[1] - 1) if S.shape[1] > 1 else 1
+    if k_eff <= 0:
+        return np.zeros((A_norm.shape[0],), dtype=np.float32)
+    topk = np.partition(S, -k_eff, axis=1)[:, -k_eff:]
+    return topk.mean(axis=1).astype(np.float32)
+
+def _build_global_bank(indexed_embeddings_list, max_bank=50000, seed=42):
+    rng = np.random.default_rng(seed)
+    flat = []
+    for vid in indexed_embeddings_list:
+        flat.extend(vid)
+    if not flat:
+        return np.zeros((0, 1), dtype=np.float32), np.zeros((0,), dtype=np.int64)
+
+    if len(flat) > max_bank:
+        flat = rng.choice(flat, size=max_bank, replace=False).tolist()
+
+    bank_ids = np.array([idx for idx, _ in flat], dtype=np.int64)
+    bank = np.vstack([_ensure_vector(v) for _, v in flat]).astype(np.float32)
+    bank_norm = _l2_normalize(bank)
+    return bank_norm, bank_ids
+
+def _zscore_dict(d: dict, eps: float = 1e-6) -> dict:
+    if not d:
+        return {}
+    vals = np.asarray(list(d.values()), dtype=np.float32)
+    mu = float(vals.mean())
+    sd = float(vals.std())
+    if sd < eps:
+        sd = eps
+    return {k: (float(v) - mu) / sd for k, v in d.items()}
+
+def distinctiveness_scores(indexed_embeddings_list, labels, k_within=20, k_global=20, max_bank=50000, seed=42):
+    bank_norm, bank_ids = _build_global_bank(indexed_embeddings_list, max_bank=max_bank, seed=seed)
+
+    labels_dct = {}
+    for vid_i, lab in enumerate(labels):
+        clips = indexed_embeddings_list[vid_i]
+        if clips:
+            labels_dct.setdefault(lab, []).extend(clips)
+
+    out = []
+    for lab, clips in labels_dct.items():
+        if not clips:
+            continue
+
+        ids = np.array([idx for idx, _ in clips], dtype=np.int64)
+        A = np.vstack([_ensure_vector(v) for _, v in clips]).astype(np.float32)
+        A_norm = _l2_normalize(A)
+
+        within = _within_cluster_knn(A_norm, k=k_within)
+
+        if bank_norm.shape[0] == 0:
+            global_score = np.zeros_like(within)
+        else:
+            global_score = _knn_mean_sim(A_norm, bank_norm, k=k_global)
+
+        score = (within - global_score).astype(np.float32)
+        out.extend(list(zip(ids.tolist(), score.tolist())))
+
+    return out
 
 def get_feature_vec_mean(embeddings):
     if embeddings is None:
@@ -44,7 +119,7 @@ def reduce_dimentionality(data):
         n_neighbors=n_neighbors,
         min_dist=0.0,
         n_components=n_components,
-        metric='euclidean',
+        metric='cosine',
         random_state=42,
     )
     embedding = reducer.fit_transform(data)
@@ -81,15 +156,18 @@ def get_class_clips(indexed_embeddings_list, labels):
         labels_dct.setdefault(label_i, []).extend(clips_i)
     return labels_dct
 
-def aph(clips):
+def aph_knn(clips, k=20):
     if not clips:
         return np.array([])
     A = np.vstack([_ensure_vector(c) for c in clips]).astype(np.float32)
-    norms = np.linalg.norm(A, axis=1, keepdims=True)
-    norms = np.maximum(norms, 1e-8)
-    A_norm = A / norms
-    cos_sim = A_norm @ A_norm.T
-    return cos_sim.mean(axis=1)
+    A /= (np.linalg.norm(A, axis=1, keepdims=True) + 1e-8)
+
+    S = A @ A.T
+    np.fill_diagonal(S, -np.inf)
+
+    k_eff = min(k, S.shape[1] - 1)
+    topk = np.partition(S, -k_eff, axis=1)[:, -k_eff:]
+    return topk.mean(axis=1)
 
 def get_clips_aph(labels_clips_dct):
     class_aph = []
@@ -98,7 +176,7 @@ def get_clips_aph(labels_clips_dct):
             continue
         indexes = [item[0] for item in clips_i]
         clip_vectors = [item[1] for item in clips_i]
-        aph_scores = aph(clip_vectors)
+        aph_scores = aph_knn(clip_vectors)
         class_aph.extend(zip(indexes, aph_scores))
     return class_aph
 
@@ -162,20 +240,46 @@ def visualize_clustering(features, labels, title="Video Clusters (2D Projection)
     plt.grid(True, linestyle='--', alpha=0.3)
     plt.show()
 
-def get_pseudo_highlight_scores(audio_embeddings_list, video_embeddings_list):
+def get_pseudo_highlight_scores(audio_embeddings_list, video_embeddings_list,
+                               k_within=20, k_global=20, max_bank=50000,
+                               w_audio=0.7, w_video=0.3, seed=42):
     clips_audio_feature_means = get_segments_means(audio_embeddings_list)
     clips_video_feature_means = get_segments_means(video_embeddings_list)
     video_level_features = concatenate_embeddings(clips_audio_feature_means, clips_video_feature_means)
-    reduced_features = reduce_dimentionality(video_level_features)
+
+    scaler = StandardScaler()
+    video_level_features_scaled = scaler.fit_transform(video_level_features)
+    reduced_features = reduce_dimentionality(video_level_features_scaled)
     best_k = select_optimal_k(reduced_features, k_min=4, k_max=15)
     labels = get_labels(reduced_features, best_k)
-    visualize_clustering(video_level_features, labels)
+
+    visualize_clustering(video_level_features_scaled, labels)
+
     index_audio_embeddings_list = get_indexed_embeddings(audio_embeddings_list)
-    audio_labels_clips_dct = get_class_clips(index_audio_embeddings_list, labels)
-    clips_audio_aph = get_clips_aph(audio_labels_clips_dct)
     index_video_embeddings_list = get_indexed_embeddings(video_embeddings_list)
-    video_labels_clips_dct = get_class_clips(index_video_embeddings_list, labels)
-    clips_video_aph = get_clips_aph(video_labels_clips_dct)
-    clips_aph = fuse_audio_video_aph(clips_audio_aph, clips_video_aph)
-    sorted_clips_aph = sort_clips_aph(clips_aph)
-    return sorted_clips_aph
+
+    audio_dist = distinctiveness_scores(
+        index_audio_embeddings_list, labels,
+        k_within=k_within, k_global=k_global, max_bank=max_bank, seed=seed
+    )
+    video_dist = distinctiveness_scores(
+        index_video_embeddings_list, labels,
+        k_within=k_within, k_global=k_global, max_bank=max_bank, seed=seed
+    )
+
+    dict_a = dict(audio_dist)
+    dict_v = dict(video_dist)
+
+    dict_a = _zscore_dict(dict_a)
+    dict_v = _zscore_dict(dict_v)
+
+    all_idx = sorted(set(dict_a.keys()) | set(dict_v.keys()))
+
+    fused = []
+    for idx in all_idx:
+        s_a = dict_a.get(idx, 0.0)
+        s_v = dict_v.get(idx, 0.0)
+        fused.append((idx, w_audio * s_a + w_video * s_v))
+
+    fused_sorted = sorted(fused, key=lambda x: x[0])
+    return np.array([s for _, s in fused_sorted], dtype=np.float32)

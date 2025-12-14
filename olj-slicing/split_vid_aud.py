@@ -69,7 +69,7 @@ def split_mp4_audio(
     file_path: str,
     n_parts: int,
     output_dir: Optional[str] = None,
-    audio_format: str = "mp3",    # could also be "wav", "flac", etc.
+    audio_format: str = "mp3",
 ):
     if n_parts < 1:
         raise ValueError("n_parts must be >= 1")
@@ -78,8 +78,7 @@ def split_mp4_audio(
     if not inp.exists():
         raise ValueError(f"Input file does not exist: {file_path}")
 
-    # Load ONLY the audio from the video file
-    audio = AudioSegment.from_file(str(inp), format=inp.suffix.lstrip("."))  # "mp4"
+    audio = AudioSegment.from_file(str(inp), format=inp.suffix.lstrip("."))
     duration_ms = len(audio)
 
     part_length = math.ceil(duration_ms / n_parts)
@@ -97,7 +96,6 @@ def split_mp4_audio(
         chunk = audio[start:end]
         out_name = f"{base_name}_part{i+1}.{audio_format}"
         out_path = out_dir / out_name
-        # for mp3: bitrate matters; for wav you can omit bitrate
         export_kwargs = {"format": audio_format}
         if audio_format == "mp3":
             export_kwargs["bitrate"] = "192k"

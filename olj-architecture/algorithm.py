@@ -13,7 +13,7 @@ from moviepy import VideoFileClip
 from torchvision.models.video import r3d_18, R3D_18_Weights
 import torch.nn.functional as nn
 
-CLIP_DURATION_FRAMES = 50
+CLIP_DURATION_FRAMES = 16
 DEFAULT_MEAN = [0.43216, 0.394666, 0.37645]
 DEFAULT_STD  = [0.22803, 0.22145, 0.216989]
 
@@ -88,59 +88,49 @@ def preprocess_audio(audio_path, sr=32000, num_segments=None, segment_duration=N
     return split_audio_into_segments(audio, sr=sr, num_segments=num_segments, 
                                     segment_duration=segment_duration)
 
-def preprocess_video(video,
-                fps = None,
-                segment_frames = CLIP_DURATION_FRAMES) -> np.ndarray:
+def preprocess_video(video_path, fps=None, segment_frames=CLIP_DURATION_FRAMES):
+    clip = VideoFileClip(video_path)
 
-    clip = VideoFileClip(video)
-    file_fps = clip.fps or fps or 25.0
-
-    if fps is None:
-        fps = file_fps
+    file_fps = clip.fps or 25.0
+    fps = fps or file_fps
 
     frames = []
-
-    for fr in clip.iter_frames(fps=fps, dtype="uint8"):
-
-        f = fr.copy()
-        f = torch.as_tensor(f)
-        f = f.permute(2, 0, 1)  
-        if f.max() > 2.5:
-            f = f / 255.0
-        f = default_preprocess(f)
-        f = f.permute(1, 2, 0)
-        f = np.asarray(f)
-
-        frames.append(f)
-
     try:
-        clip.reader.close()
-    except Exception:
-        pass
-    try:
-        if clip.audio is not None:
-            clip.audio.reader.close_proc()
-    except Exception:
-        pass
+        for fr in clip.iter_frames(fps=fps, dtype="uint8"):
+            img_t = default_preprocess(fr)
+            frames.append(img_t)
+    finally:
+        try:
+            clip.reader.close()
+        except Exception:
+            pass
+        try:
+            if clip.audio is not None:
+                clip.audio.reader.close_proc()
+        except Exception:
+            pass
 
-    frames = np.stack(frames, axis=0)
+    if len(frames) == 0:
+        segment_duration = segment_frames / fps
+        empty = np.zeros((0, 3, segment_frames, 112, 112), dtype=np.float32)
+        return empty, 0, segment_duration
 
+    frames = torch.stack(frames, dim=0)
     T = frames.shape[0]
 
     n_segments = (T + segment_frames - 1) // segment_frames
-    out_shape = (n_segments, segment_frames) + frames.shape[1:]
-    out = np.zeros(out_shape, dtype=frames.dtype)
+
+    pad_T = n_segments * segment_frames - T
+    if pad_T > 0:
+        pad_frame = torch.zeros_like(frames[0:1])
+        frames = torch.cat([frames, pad_frame.repeat(pad_T, 1, 1, 1)], dim=0)
+
+    frames = frames.view(n_segments, segment_frames, *frames.shape[1:])
+
+    frames = frames.permute(0, 2, 1, 3, 4).contiguous()
 
     segment_duration = segment_frames / fps
-
-    for i in range(n_segments):
-        s = i * segment_frames
-        e = s + segment_frames
-        seg = frames[s:e]
-        out[i, :len(seg)] = seg
-
-    out = out.transpose(0, 4, 1, 2, 3) 
-    return out, n_segments, segment_duration
+    return frames.numpy(), n_segments, segment_duration
 
 def preprocess_video_paths(video_path_list):
     
