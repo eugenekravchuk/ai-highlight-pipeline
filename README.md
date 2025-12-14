@@ -1,5 +1,8 @@
 # ai-highlight-pipeline
 
+# Data for our project
+[google drive](https://drive.google.com/drive/folders/1YjgOv60ueh2B9aV_yE0qIY37qndXXhPB?usp=sharing)
+
 # Our work mostly base on this papers:
   1. Unsupervised Video Highlight Detection by Learning from
       Audio and Visual Recurrence: https://arxiv.org/pdf/2407.13933
