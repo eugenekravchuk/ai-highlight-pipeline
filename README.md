@@ -1,140 +1,119 @@
-ai-highlight-pipeline
+# ai-highlight-pipeline
 
-AI-powered pipeline for automatic football (soccer) match highlight generation
-using audio–visual embeddings, self-attention, pseudo-labeling, and
-automatic voiceover generation.
+AI-powered pipeline for automatic football (soccer) match highlight generation using audio–visual embeddings, self-attention, pseudo-labeling, and automatic voiceover generation.
+
+## Overview
 
 The system takes a full match video and produces a final highlight video with:
 
-automatically selected key moments
+- Automatically selected key moments
+- Intro & outro posters
+- Background music
+- AI-generated analytical voiceover
 
-intro & outro posters
-
-background music
-
-AI-generated analytical voiceover
-
-Data for the project
+## Data
 
 Raw match videos and related assets are stored on Google Drive:
 
-🔗 Google Drive dataset
-https://drive.google.com/drive/folders/1YjgOv60ueh2B9aV_yE0qIY37qndXXhPB?usp=sharing
+[Google Drive dataset](https://drive.google.com/drive/folders/1YjgOv60ueh2B9aV_yE0qIY37qndXXhPB?usp=sharing)
 
-Research background
+## Research Background
 
 This project is inspired by the following research papers:
 
-Unsupervised Video Highlight Detection by Learning from
-Audio and Visual Recurrence
-https://arxiv.org/pdf/2407.13933
+1. [Unsupervised Video Highlight Detection by Learning from Audio and Visual Recurrence](https://arxiv.org/pdf/2407.13933)
+2. [Joint Visual and Audio Learning for Video Highlight Detection (ICCV 2021)](https://openaccess.thecvf.com/content/ICCV2021/papers/Badamdorj_Joint_Visual_and_Audio_Learning_for_Video_Highlight_Detection_ICCV_2021_paper.pdf)
+3. [Attention Is All You Need](https://arxiv.org/pdf/1706.03762)
 
-Joint Visual and Audio Learning for Video Highlight Detection
-(ICCV 2021)
-https://openaccess.thecvf.com/content/ICCV2021/papers/Badamdorj_Joint_Visual_and_Audio_Learning_for_Video_Highlight_Detection_ICCV_2021_paper.pdf
-
-Attention Is All You Need
-https://arxiv.org/pdf/1706.03762
-
-Pipeline overview
+## Pipeline Overview
 
 The pipeline consists of the following stages:
 
-Match segmentation
+### 1. Match Segmentation
 
-Split the full match video into fixed-length segments
+- Split the full match video into fixed-length segments
+- Extract corresponding audio chunks
 
-Extract corresponding audio chunks
+### 2. Feature Extraction
 
-Feature extraction
+- **Video embeddings**: R3D-18 (Kinetics-400 pretrained)
+- **Audio embeddings**: PANNs (Cnn14)
+- Audio preprocessing via ffmpeg (no librosa dependency)
 
-Video embeddings: R3D-18 (Kinetics-400 pretrained)
+### 3. Pseudo-Label Generation
 
-Audio embeddings: PANNs (Cnn14)
+- Pseudo Highlight Scores (PHS) computed from audio–visual recurrence
+- No manual annotations required
 
-Audio preprocessing via ffmpeg (no librosa dependency)
+### 4. Model Training / Inference
 
-Pseudo-label generation
+- Self-attention for audio and video streams
+- Bimodal attention for cross-modal interaction
+- Highlight probability prediction per segment
 
-Pseudo Highlight Scores (PHS) computed from audio–visual recurrence
+### 5. Highlight Rendering
 
-No manual annotations required
+- Global highlight duration budget
+- Temporal smoothing and merging
+- Video-only highlight rendering
 
-Model training / inference
+### 6. Voiceover Generation
 
-Self-attention for audio and video streams
+- Speech-to-text via Whisper
+- Script generation using OpenAI GPT
+- Text-to-speech via ElevenLabs
+- Background music mixing with ducking
 
-Bimodal attention for cross-modal interaction
+### 7. Final Assembly
 
-Highlight probability prediction per segment
+- Intro & outro poster videos
+- Crossfade transitions
+- Audio replacement
+- Single final MP4 output
 
-Highlight rendering
+## Requirements
 
-Global highlight duration budget
+- Python 3.10+
+- FFmpeg (must be available in PATH)
+- GPU optional (CPU supported)
 
-Temporal smoothing and merging
+### External Services (optional but recommended)
 
-Video-only highlight rendering
+- OpenAI API (script generation)
+- ElevenLabs API (voiceover TTS)
+- API-Football (match metadata)
 
-Voiceover generation
-
-Speech-to-text via Whisper
-
-Script generation using OpenAI GPT
-
-Text-to-speech via ElevenLabs
-
-Background music mixing with ducking
-
-Final assembly
-
-Intro & outro poster videos
-
-Crossfade transitions
-
-Audio replacement
-
-Single final MP4 output
-
-Requirements
-
-Python 3.10+
-
-FFmpeg (must be available in PATH)
-
-GPU optional (CPU supported)
-
-External services (optional but recommended):
-
-OpenAI API (script generation)
-
-ElevenLabs API (voiceover TTS)
-
-API-Football (match metadata)
-
-Environment setup
+## Installation
 
 Create and activate a virtual environment:
 
+```bash
 python -m venv .venv
 source .venv/bin/activate        # Linux / macOS
 # or
 .venv\Scripts\activate           # Windows
+```
 
+Install dependencies:
+
+```bash
 pip install -r requirements.txt
+```
 
+Create a `.env` file in the project root:
 
-Create a .env file in the project root:
-
+```env
 OPENAI_API_KEY=your_openai_key
 ELEVEN_API_KEY=your_elevenlabs_key
 FOOTBALL_API_KEY=your_api_football_key
 ELEVEN_VOICE=Bella
+```
 
-How to run (full pipeline)
+## Usage
 
 Run the complete highlight + voiceover pipeline:
 
+```bash
 python scripts/full_pipeline.py \
   --match_video data/video.mp4 \
   --music music/bg.mp3 \
@@ -142,20 +121,27 @@ python scripts/full_pipeline.py \
   --outro_img img/outro.png \
   --checkpoint checkpoints/av_highlight_model.pt \
   --embeddings_cache cache/cached_embeddings_full_match.npz
-
+```
 
 Final output will be saved to:
 
+```
 output/final_assembly/FINAL.mp4
+```
 
-Optional arguments
-Argument	Description
---device	Force cpu or cuda
---epochs	Training epochs (if no checkpoint)
---batch_size	Training batch size
---global_budget_s	Total highlight duration
---seg_s	Segment length in seconds
-Project structure
+### Optional Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `--device` | Force cpu or cuda |
+| `--epochs` | Training epochs (if no checkpoint) |
+| `--batch_size` | Training batch size |
+| `--global_budget_s` | Total highlight duration |
+| `--seg_s` | Segment length in seconds |
+
+## Project Structure
+
+```
 ai-highlight-pipeline/
 │
 ├── scripts/
@@ -177,25 +163,23 @@ ai-highlight-pipeline/
 ├── music/
 ├── img/
 └── requirements.txt
+```
 
-Notes & limitations
+## Notes & Limitations
 
-Highlight quality strongly depends on audio intensity and crowd reactions
+- Highlight quality strongly depends on audio intensity and crowd reactions
+- Voiceover duration depends on generated script length
+- ElevenLabs free tier has request limits
+- GPU is recommended for faster processing
 
-Voiceover duration depends on generated script length
+## Future Improvements
 
-ElevenLabs free tier has request limits
+- Multilingual voiceover support
+- Player name entity correction
+- Emotion-aware TTS control
+- Live match processing
+- Automatic subtitles
 
-GPU is recommended for faster processing
+## License
 
-Future improvements
-
-Multilingual voiceover support
-
-Player name entity correction
-
-Emotion-aware TTS control
-
-Live match processing
-
-Automatic subtitles
+MIT
