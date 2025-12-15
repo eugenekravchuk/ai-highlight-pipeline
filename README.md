@@ -1,30 +1,201 @@
-# ai-highlight-pipeline
+ai-highlight-pipeline
 
-# Data for our project
-[google drive](https://drive.google.com/drive/folders/1YjgOv60ueh2B9aV_yE0qIY37qndXXhPB?usp=sharing)
+AI-powered pipeline for automatic football (soccer) match highlight generation
+using audio–visual embeddings, self-attention, pseudo-labeling, and
+automatic voiceover generation.
 
-# Our work mostly base on this papers:
-  1. Unsupervised Video Highlight Detection by Learning from
-      Audio and Visual Recurrence: https://arxiv.org/pdf/2407.13933
-  2. Joint Visual and Audio Learning for Video Highlight Detection: 
-      https://openaccess.thecvf.com/content/ICCV2021/papers/Badamdorj_Joint_Visual_and_Audio_Learning_for_Video_Highlight_Detection_ICCV_2021_paper.pdf
-  3. Attention Is All You Need:
-    https://arxiv.org/pdf/1706.03762
+The system takes a full match video and produces a final highlight video with:
 
-# How to use
+automatically selected key moments
 
-First - create virtual environment:
+intro & outro posters
 
-```
+background music
+
+AI-generated analytical voiceover
+
+Data for the project
+
+Raw match videos and related assets are stored on Google Drive:
+
+🔗 Google Drive dataset
+https://drive.google.com/drive/folders/1YjgOv60ueh2B9aV_yE0qIY37qndXXhPB?usp=sharing
+
+Research background
+
+This project is inspired by the following research papers:
+
+Unsupervised Video Highlight Detection by Learning from
+Audio and Visual Recurrence
+https://arxiv.org/pdf/2407.13933
+
+Joint Visual and Audio Learning for Video Highlight Detection
+(ICCV 2021)
+https://openaccess.thecvf.com/content/ICCV2021/papers/Badamdorj_Joint_Visual_and_Audio_Learning_for_Video_Highlight_Detection_ICCV_2021_paper.pdf
+
+Attention Is All You Need
+https://arxiv.org/pdf/1706.03762
+
+Pipeline overview
+
+The pipeline consists of the following stages:
+
+Match segmentation
+
+Split the full match video into fixed-length segments
+
+Extract corresponding audio chunks
+
+Feature extraction
+
+Video embeddings: R3D-18 (Kinetics-400 pretrained)
+
+Audio embeddings: PANNs (Cnn14)
+
+Audio preprocessing via ffmpeg (no librosa dependency)
+
+Pseudo-label generation
+
+Pseudo Highlight Scores (PHS) computed from audio–visual recurrence
+
+No manual annotations required
+
+Model training / inference
+
+Self-attention for audio and video streams
+
+Bimodal attention for cross-modal interaction
+
+Highlight probability prediction per segment
+
+Highlight rendering
+
+Global highlight duration budget
+
+Temporal smoothing and merging
+
+Video-only highlight rendering
+
+Voiceover generation
+
+Speech-to-text via Whisper
+
+Script generation using OpenAI GPT
+
+Text-to-speech via ElevenLabs
+
+Background music mixing with ducking
+
+Final assembly
+
+Intro & outro poster videos
+
+Crossfade transitions
+
+Audio replacement
+
+Single final MP4 output
+
+Requirements
+
+Python 3.10+
+
+FFmpeg (must be available in PATH)
+
+GPU optional (CPU supported)
+
+External services (optional but recommended):
+
+OpenAI API (script generation)
+
+ElevenLabs API (voiceover TTS)
+
+API-Football (match metadata)
+
+Environment setup
+
+Create and activate a virtual environment:
+
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate        # Linux / macOS
+# or
+.venv\Scripts\activate           # Windows
+
 pip install -r requirements.txt
-```
 
-Then run a script on a video of your choice:
 
-```
-python highlight-pipeline/run.py \
-  --match_video "./data/matches/full_match_beic_barcelona.mp4" \
-```
+Create a .env file in the project root:
 
+OPENAI_API_KEY=your_openai_key
+ELEVEN_API_KEY=your_elevenlabs_key
+FOOTBALL_API_KEY=your_api_football_key
+ELEVEN_VOICE=Bella
+
+How to run (full pipeline)
+
+Run the complete highlight + voiceover pipeline:
+
+python scripts/full_pipeline.py \
+  --match_video data/video.mp4 \
+  --music music/bg.mp3 \
+  --intro_img img/intro.png \
+  --outro_img img/outro.png \
+  --checkpoint checkpoints/av_highlight_model.pt \
+  --embeddings_cache cache/cached_embeddings_full_match.npz
+
+
+Final output will be saved to:
+
+output/final_assembly/FINAL.mp4
+
+Optional arguments
+Argument	Description
+--device	Force cpu or cuda
+--epochs	Training epochs (if no checkpoint)
+--batch_size	Training batch size
+--global_budget_s	Total highlight duration
+--seg_s	Segment length in seconds
+Project structure
+ai-highlight-pipeline/
+│
+├── scripts/
+│   ├── full_pipeline.py
+│   ├── generate_voiceover.py
+│
+├── core/
+│   ├── attention.py
+│   ├── classifier.py
+│
+├── highlight_utils/
+│   ├── render_highlights.py
+│   ├── media_split.py
+│
+├── checkpoints/
+├── cache/
+├── output/
+├── data/
+├── music/
+├── img/
+└── requirements.txt
+
+Notes & limitations
+
+Highlight quality strongly depends on audio intensity and crowd reactions
+
+Voiceover duration depends on generated script length
+
+ElevenLabs free tier has request limits
+
+GPU is recommended for faster processing
+
+Future improvements
+
+Multilingual voiceover support
+
+Player name entity correction
+
+Emotion-aware TTS control
+
+Live match processing
+
+Automatic subtitles
