@@ -182,4 +182,4 @@ ai-highlight-pipeline/
 
 ## License
 
-MIT
+АВТОРСЬКЕ ПРАВО НАЖЕЖИТЬ МЕССІ
