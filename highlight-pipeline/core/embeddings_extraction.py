@@ -79,9 +79,28 @@ def split_audio_into_segments(audio, sr, num_segments=None, segment_duration=Non
 
     return out
 
+import subprocess
+import numpy as np
+
+def load_audio_mono_ffmpeg(path: str, sr: int = 32000) -> np.ndarray:
+    cmd = [
+        "ffmpeg", "-v", "error",
+        "-i", str(path),
+        "-f", "s16le",
+        "-acodec", "pcm_s16le",
+        "-ac", "1",
+        "-ar", str(int(sr)),
+        "pipe:1",
+    ]
+    raw = subprocess.check_output(cmd)
+    audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+    return audio
+
+
 def preprocess_audio(audio_path, sr=32000, num_segments=None, segment_duration=None):
 
-    audio, _ = librosa.core.load(audio_path, sr=sr, mono=True)
+    audio = load_audio_mono_ffmpeg(audio_path, sr=sr)
+
 
     return split_audio_into_segments(audio, sr=sr, num_segments=num_segments, 
                                     segment_duration=segment_duration)

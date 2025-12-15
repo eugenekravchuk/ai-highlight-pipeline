@@ -1,5 +1,14 @@
+import os
+os.environ["NUMBA_DISABLE_JIT"] = "1"
+try:
+    import umap.umap_ as umap
+    _HAS_UMAP = True
+except Exception as e:
+    print("[PHS] UMAP disabled:", e)
+    umap = None
+    _HAS_UMAP = False
+
 import numpy as np
-import umap
 import torch
 import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
@@ -110,20 +119,26 @@ def get_segments_means(embeddings_list):
 def reduce_dimentionality(data):
     data = np.asarray(data)
     n_samples, n_features = data.shape
+
     if n_samples <= 10:
-        print(f"[PHS] Warning: n_samples ({n_samples}) <= 10. Skipping UMAP reduction.")
+        print(f"[PHS] Warning: n_samples ({n_samples}) <= 10. Skipping reduction.")
         return data
-    n_components = min(10, n_features, n_samples - 2)
-    n_neighbors = min(15, n_samples - 1)
-    reducer = umap.UMAP(
-        n_neighbors=n_neighbors,
-        min_dist=0.0,
-        n_components=n_components,
-        metric='cosine',
-        random_state=42,
-    )
-    embedding = reducer.fit_transform(data)
-    return embedding
+
+    if _HAS_UMAP:
+        n_components = min(10, n_features, n_samples - 2)
+        n_neighbors = min(15, n_samples - 1)
+        reducer = umap.UMAP(
+            n_neighbors=n_neighbors,
+            min_dist=0.0,
+            n_components=n_components,
+            metric="cosine",
+            random_state=42,
+        )
+        return reducer.fit_transform(data)
+
+    print("[PHS] Using identity fallback (no UMAP).")
+    return data
+
 
 def get_labels(features, k):
     kmeans = KMeans(n_clusters=k, random_state=42, n_init='auto')
@@ -253,7 +268,11 @@ def get_pseudo_highlight_scores(audio_embeddings_list, video_embeddings_list,
     best_k = select_optimal_k(reduced_features, k_min=4, k_max=15)
     labels = get_labels(reduced_features, best_k)
 
-    visualize_clustering(video_level_features_scaled, labels)
+    if umap is not None:
+        visualize_clustering(video_level_features_scaled, labels)
+    else:
+        print("[Vis] Skipping visualization (UMAP not available).")
+
 
     index_audio_embeddings_list = get_indexed_embeddings(audio_embeddings_list)
     index_video_embeddings_list = get_indexed_embeddings(video_embeddings_list)

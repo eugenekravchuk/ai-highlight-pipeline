@@ -144,6 +144,7 @@ celerybeat.pid
 *.aof
 *.pid
 
+.env
 # RabbitMQ
 mnesia/
 rabbitmq/
@@ -226,3 +227,11 @@ __marimo__/
 
 architecture/~
 .vscode
+
+
+# model & cache
+checkpoints/
+cache/
+
+# outputs
+output/

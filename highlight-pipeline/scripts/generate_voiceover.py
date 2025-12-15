@@ -11,7 +11,6 @@ import subprocess
 from pathlib import Path
 from typing import Dict, Any, Tuple, List
 
-import librosa
 import numpy as np
 import requests
 from faster_whisper import WhisperModel
@@ -109,22 +108,53 @@ def stt_whisper(
     full_text = " ".join([s["text"] for s in segs])
     return segs, full_text
 
-def audio_excitement(wav_path: str, sr: int = 16000) -> float:
-    """
-    Quick excitement proxy: peak z-scored RMS across ~0.5s hops.
-    """
-    y, _ = librosa.load(wav_path, sr=sr, mono=True)
-    if y.size == 0:
-        return 0.0
+import subprocess
+import numpy as np
 
-    hop = int(0.5 * sr)
-    win = hop * 2
-    rms = librosa.feature.rms(y=y, frame_length=win, hop_length=hop, center=True).flatten()
-    if len(rms) == 0:
-        return 0.0
+def _ffmpeg_load_mono_f32(wav_path: str, sr: int = 16000) -> np.ndarray:
+    cmd = [
+        "ffmpeg", "-v", "error",
+        "-i", str(wav_path),
+        "-f", "f32le",
+        "-ac", "1",
+        "-ar", str(int(sr)),
+        "pipe:1",
+    ]
+    raw = subprocess.check_output(cmd)
+    y = np.frombuffer(raw, dtype=np.float32)
+    return y
+
+def audio_excitement(wav_path: str, sr: int = 16000):
+    y = _ffmpeg_load_mono_f32(wav_path, sr=sr)
+    if y.size == 0:
+        return {"z": np.array([], dtype=np.float32), "t": np.array([], dtype=np.float32), "z_peak": 0.0, "t_peak": 0.0}
+
+    frame = int(0.05 * sr)   # 50ms
+    hop   = int(0.02 * sr)   # 20ms
+    frame = max(frame, 1)
+    hop = max(hop, 1)
+
+    # pad for safe framing
+    if y.size < frame:
+        y = np.pad(y, (0, frame - y.size))
+
+    n = 1 + (y.size - frame) // hop
+    rms = np.empty(n, dtype=np.float32)
+    for i in range(n):
+        s = y[i * hop : i * hop + frame]
+        rms[i] = np.sqrt(np.mean(s * s) + 1e-12)
 
     z = (rms - rms.mean()) / (rms.std() + 1e-8)
-    return float(np.max(z))
+    t = (np.arange(n, dtype=np.float32) * hop) / float(sr)
+
+    peak_i = int(np.argmax(z)) if z.size else 0
+    return {
+        "z": z,
+        "t": t,
+        "z_peak": float(z[peak_i]) if z.size else 0.0,
+        "t_peak": float(t[peak_i]) if t.size else 0.0,
+    }
+
 
 
 # ------------------ API-FOOTBALL HELPERS ------------------
@@ -277,35 +307,34 @@ def gpt_generate_script(transcript_text: str, analytics: dict, target_minutes: f
 
         client = OpenAI(api_key=OPENAI_API_KEY)
         prompt = f"""
-You are a football analyst and scriptwriter. Your style must be direct, analytical, and contain zero fluff.
-Use concise, clear language. No filler words.
+You are a football analyst and scriptwriter.
+Your style must be direct, analytical, and concise.
+Zero fluff. No filler phrases.
 
-Task: Create an English voiceover script of about {target_minutes} minutes (target ~{WPM} wpm).
-Use the [ANALYTICS JSON] for pre-match context and the [COMMENTARY TRANSCRIPT] to identify key match events.
+Task:
+Create an English voiceover script of about {target_minutes}+2 minutes (≈ {WPM} words per minute).
 
-Script Structure:
+Internal structure guidance (DO NOT output this structure):
+- Begin with 1–2 sentences introducing the match and its significance.
+- Briefly analyze pre-match context using ONLY the analytics data.
+- Select and analyze 3–5 decisive match moments from the commentary.
+- Conclude with 1–2 sharp sentences explaining why the result happened.
 
-1.  **Intro (1-2 sentences):**
-    * State the match, the final score (if clear from transcript), and its significance.
+IMPORTANT:
+- Output ONLY the spoken narration text.
+- DO NOT include section titles, labels, headings, or words like "Intro", "Outro", or any numbering.
+- The script must be clean, continuous narration suitable for direct voiceover.
+- No markdown. No lists. No explanations.
 
-2.  **Pre-Match Analysis (Concise):**
-    * Analyze data *only* from the [ANALYTICS JSON].
-    * Compare the recent form (W/D/L, GF/GA) of both teams.
-    * Identify the key players (top scorers/assisters) for each side.
-    * Mention head-to-head context if available.
+Write for energetic broadcast delivery:
+- Prefer short punchy sentences, varied rhythm, and occasional emphatic pauses using dashes (—).
+- Avoid monotone listing; highlight momentum swings with sharper phrasing
 
-3.  **Key Highlight Analysis (The Body):**
-    * Scan the [COMMENTARY TRANSCRIPT] and extract the *most important* match events.
-    * Focus *only* on:
-        * **Goals:** Who scored, when (if mentioned), and the impact.
-        * **Red Cards:** Describe the incident and its consequences.
-        * **Decisive Moments:** Major saves, penalty incidents, or clear turning points.
-    * Do NOT narrate the entire match. Select 3-5 key highlights and analyze *why* they mattered.
+Use:
+- [ANALYTICS JSON] for factual context
+- [COMMENTARY TRANSCRIPT] to identify key events
 
-4.  **Outro (1-2 sentences):**
-    * A sharp conclusion on the decisive factors that led to the result.
-
-[OFFICIAL/ANALYTICS JSON]
+[ANALYTICS JSON]
 {json.dumps(analytics, ensure_ascii=False, indent=2)}
 
 [COMMENTARY TRANSCRIPT (trimmed)]
@@ -385,7 +414,12 @@ def tts_elevenlabs(text: str, out_mp3: str, voice_id_or_name: str = ELEVEN_VOICE
         json={
             "text": text,
             "model_id": "eleven_multilingual_v2",
-            "voice_settings": {"stability": 0.3, "similarity_boost": 0.75},
+            "voice_settings": {
+                "stability": 0.15,
+                "similarity_boost": 0.85,
+                "style": 0.65,
+                "use_speaker_boost": True
+            },
         },
         timeout=180,
     )
@@ -440,12 +474,12 @@ def create_voiceover_for_match(
 
     t2 = time.perf_counter()
     print("[3/6] Computing audio excitement…")
-    exc = audio_excitement(audio_wav, sr=sr)
-    print(f"    Excitement z-peak: {exc:.2f} | {time.perf_counter() - t2:.2f}s")
+    exc = audio_excitement(audio_wav, sr=sr); print(f"    Excitement z-peak: {exc['z_peak']:.2f} | {time.perf_counter() - t2:.2f}s")
 
     t3 = time.perf_counter()
     print("[4/6] Fetching match/team analytics (API-Football)…")
-    analytics = build_match_analytics(home_team, away_team, season, date_str, excitement_peak=exc)
+    exc_small = {"z_peak": exc["z_peak"], "t_peak": exc["t_peak"]}
+    analytics = build_match_analytics(home_team, away_team, season, date_str, excitement_peak=exc_small)
     print(f"    Analytics keys: {list(analytics.keys())} | {time.perf_counter() - t3:.2f}s")
 
     t4 = time.perf_counter()
